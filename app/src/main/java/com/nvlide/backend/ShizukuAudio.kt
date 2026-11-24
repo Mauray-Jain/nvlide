@@ -20,7 +20,7 @@ class ShizukuAudio(
     enum class State { NOT_RUNNING, NO_PERMISSION, CONNECTING, READY }
 
     /** Called on the main thread when [state] may have changed. */
-    var onStateChange: (() -> Unit)? = null
+    val listeners = mutableSetOf<() -> Unit>()
 
     private val main = Handler(Looper.getMainLooper())
     private var service: IPrivilegedAudio? = null
@@ -94,7 +94,7 @@ class ShizukuAudio(
         changed()
     }
 
-    private fun changed() = onStateChange?.invoke()
+    private fun changed() = listeners.toList().forEach { it() }
 
     private companion object {
         const val TAG = "nvlide.shizuku"

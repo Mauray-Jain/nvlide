@@ -38,8 +38,8 @@ per-app EQ, controlling calls/alarms per app, work profile apps, root backend.
 | Player → app | The privileged service maps pid → package (it is the only side that can list every running process) and sends `(package, piid, playing)` per player. Players with uid < 10000 or an unknown pid are dropped there. |
 | Player list | Public `AudioManager.registerAudioPlaybackCallback` inside the shell-uid service (needs the Shizuku app v13+, which passes a `Context` to the user service); only the `@SystemApi` getters and `PlayerProxy.setVolume` use reflection. |
 | HiddenApiBypass | Not added: the Shizuku user service runs under `app_process`, where hidden-API checks are off. Add it only if M0 shows reflection blocked. |
-| Pill state | Shizuku stopped → "Start Shizuku" (opens Shizuku). Permission missing → "Set up nvlide" (opens the setup screen). Still connecting → no pill. Pill shows the number of apps playing now. |
-| Pill offset | Per orientation, in dp: x from the right edge, y from the vertical centre. Defaults 88/−160 portrait, 88/−60 landscape; set in the setup screen. |
+| Pill state | Shizuku stopped → "Start Shizuku" (opens Shizuku). Permission missing → "Set up nvlide" (opens the setup screen). Still connecting → no pill. Pill shows the number of apps playing now. The overlay follows Shizuku and player changes while shown: the open card closes when the last app goes away, and turns back into the hint pill if Shizuku stops. |
+| Pill offset | Per orientation, in dp: x from the right edge, y from the vertical centre. Defaults 88/−160 portrait, 88/−60 landscape; set in the setup screen, which shows the pill live while the sliders move. |
 | Card size | Slider height = 28 % of screen height in portrait, 45 % in landscape, clamped to 120–280 dp; width capped to the screen. |
 | Back to 100 % | Moving an adjusted app back to 100 % still sends `setVolume(1.0)`; new players of an app at 100 % unmuted get no call. |
 | Idle order | Inside a group (playing / recent / idle) apps keep the order of the player list. |

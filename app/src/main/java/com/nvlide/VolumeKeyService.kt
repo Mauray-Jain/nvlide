@@ -11,7 +11,8 @@ class VolumeKeyService : AccessibilityService() {
     private var overlay: Overlay? = null
 
     override fun onServiceConnected() {
-        overlay = Overlay(this, application as NvlideApp)
+        val app = application as NvlideApp
+        overlay = Overlay(this, app).also { app.overlay = it }
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -28,6 +29,7 @@ class VolumeKeyService : AccessibilityService() {
     override fun onDestroy() {
         overlay?.dismiss()
         overlay = null
+        (application as NvlideApp).overlay = null
         super.onDestroy()
     }
 

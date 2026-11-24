@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import com.nvlide.backend.ShizukuAudio
+import com.nvlide.ui.Overlay
 
 /** Owns the single store, backend and controller shared by the overlay and the setup screen. */
 class NvlideApp : Application() {
@@ -13,6 +14,9 @@ class NvlideApp : Application() {
         private set
     lateinit var overlayPrefs: OverlayPrefs
         private set
+
+    /** The overlay while the accessibility service is on, so the setup screen can preview the pill position. */
+    var overlay: Overlay? = null
 
     override fun onCreate() {
         super.onCreate()

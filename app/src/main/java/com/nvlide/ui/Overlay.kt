@@ -13,27 +13,34 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import com.nvlide.MainActivity
 import com.nvlide.NvlideApp
-import com.nvlide.backend.ShizukuAudio
 
 /**
  * The accessibility-overlay window beside the stock volume panel: a pill that expands into the app card.
- * Hides [TIMEOUT_MS] after the last key press or touch, or on a tap outside.
+ * Follows [overlayContent] whenever players or the backend change. Hides [TIMEOUT_MS] after the last key
+ * press or touch, or on a tap outside.
  */
 class Overlay(private val context: Context, private val app: NvlideApp) {
     private val windows = context.getSystemService(WindowManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private val hide = Runnable { dismiss() }
+    private val onChange = { if (root != null) render() }
     private var root: FrameLayout? = null
     private var pill: PillView? = null
     private var card: AppCardView? = null
-    private val onChange = { refresh() }
+    private var expanded = false
+    private var previewing = false
 
     fun onVolumeKey() {
-        if (root == null) {
-            if (app.backend.state == ShizukuAudio.State.READY && app.controller.apps().isEmpty()) return
-            if (app.backend.state == ShizukuAudio.State.CONNECTING) return
-            show()
-        }
+        previewing = false
+        render()
+        bumpTimeout()
+    }
+
+    /** Shows the pill where it would appear now, so its offset can be tuned from the setup screen. */
+    fun previewPosition() {
+        previewing = true
+        render()
+        root?.let { windows.updateViewLayout(it, params()) }
         bumpTimeout()
     }
 
@@ -46,35 +53,64 @@ class Overlay(private val context: Context, private val app: NvlideApp) {
     fun dismiss() {
         main.removeCallbacks(hide)
         app.controller.listeners -= onChange
+        app.backend.listeners -= onChange
         root?.let { windows.removeView(it) }
         root = null
         pill = null
         card = null
+        expanded = false
+        previewing = false
     }
 
-    private fun show() {
-        val p = PillView(context).apply { setOnClickListener { onPillTap() } }
-        val r = touchRoot().apply { addView(p) }
-        pill = p
-        root = r
-        windows.addView(r, params())
-        app.controller.listeners += onChange
-        refresh()
+    private fun content(): OverlayContent {
+        val c = overlayContent(app.backend.state, app.controller.apps().isNotEmpty(), expanded)
+        return if (c == OverlayContent.NONE && previewing) OverlayContent.COUNT else c
     }
 
-    private fun onPillTap() {
-        when (app.backend.state) {
-            ShizukuAudio.State.READY -> expand()
-            ShizukuAudio.State.NOT_RUNNING -> launch(context.packageManager.getLaunchIntentForPackage(SHIZUKU))
-            else -> launch(Intent(context, MainActivity::class.java))
+    private fun render() {
+        val c = content()
+        if (c != OverlayContent.CARD) expanded = false
+        if (c == OverlayContent.NONE) return dismiss()
+        val r = root ?: touchRoot().also {
+            root = it
+            windows.addView(it, params())
+            app.controller.listeners += onChange
+            app.backend.listeners += onChange
+        }
+        if (c == OverlayContent.CARD) {
+            (card ?: showCard(r)).update(app.controller.apps())
+            return
+        }
+        val p = pill ?: PillView(context).also {
+            r.removeAllViews()
+            card = null
+            it.setOnClickListener { onPillTap() }
+            r.addView(it)
+            pill = it
+        }
+        when (c) {
+            OverlayContent.START_SHIZUKU -> p.showHint("Start Shizuku")
+            OverlayContent.SET_UP -> p.showHint("Set up nvlide")
+            else -> p.showCount(app.controller.playingCount())
         }
     }
 
-    private fun expand() {
-        val r = root ?: return
+    private fun onPillTap() {
+        when (content()) {
+            OverlayContent.COUNT -> {
+                expanded = true
+                render()
+                bumpTimeout()
+            }
+            OverlayContent.START_SHIZUKU -> launch(context.packageManager.getLaunchIntentForPackage(SHIZUKU))
+            OverlayContent.SET_UP -> launch(Intent(context, MainActivity::class.java))
+            else -> Unit
+        }
+    }
+
+    private fun showCard(r: FrameLayout): AppCardView {
         val c = AppCardView(context, app.controller)
         size(c)
-        c.update(app.controller.apps())
         r.removeAllViews()
         pill = null
         card = c
@@ -85,20 +121,7 @@ class Overlay(private val context: Context, private val app: NvlideApp) {
             c.alpha = 1f
             c.animate().translationX(0f).setDuration(Style.SLIDE_MS).start()
         }
-        bumpTimeout()
-    }
-
-    private fun refresh() {
-        val state = app.backend.state
-        pill?.let {
-            when (state) {
-                ShizukuAudio.State.READY -> it.showCount(app.controller.playingCount())
-                ShizukuAudio.State.NOT_RUNNING -> it.showHint("Start Shizuku")
-                else -> it.showHint("Set up nvlide")
-            }
-        }
-        card?.update(app.controller.apps())
-        if (state == ShizukuAudio.State.READY && pill != null && app.controller.apps().isEmpty()) dismiss()
+        return c
     }
 
     /** Card height follows the screen: shorter sliders in landscape. Width is capped so it never leaves the screen. */
@@ -132,7 +155,7 @@ class Overlay(private val context: Context, private val app: NvlideApp) {
     @SuppressLint("ClickableViewAccessibility")
     private fun touchRoot() = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+            if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE && !previewing) {
                 dismiss()
                 return true
             }
@@ -143,7 +166,7 @@ class Overlay(private val context: Context, private val app: NvlideApp) {
 
     private fun bumpTimeout() {
         main.removeCallbacks(hide)
-        main.postDelayed(hide, TIMEOUT_MS)
+        if (root != null) main.postDelayed(hide, TIMEOUT_MS)
     }
 
     private fun launch(intent: Intent?) {

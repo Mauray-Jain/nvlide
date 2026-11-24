@@ -31,6 +31,7 @@ class MainActivity : AndroidActivity() {
     private lateinit var accessibility: Step
     private lateinit var battery: Step
     private val onChange = { card.update(app.controller.apps()) }
+    private val onState = { refresh() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,7 +56,7 @@ class MainActivity : AndroidActivity() {
         battery = step("Battery optimisation is off for nvlide", "Turn off") { askBatteryExemption() }
 
         content.addView(text("Pill position", 22f).apply { setPadding(0, dp(24), 0, 0) })
-        content.addView(text("Press a volume key to see where the pill lands.", 13f))
+        content.addView(text("The pill shows where it lands while you move these (needs the accessibility service on).", 13f))
         for (landscape in listOf(false, true)) offsetSliders(landscape)
 
         content.addView(cardTitle.apply { setPadding(0, dp(24), 0, dp(8)) })
@@ -64,14 +65,14 @@ class MainActivity : AndroidActivity() {
 
     override fun onResume() {
         super.onResume()
-        app.backend.onStateChange = { refresh() }
+        app.backend.listeners += onState
         app.controller.listeners += onChange
         refresh()
     }
 
     override fun onPause() {
         super.onPause()
-        app.backend.onStateChange = null
+        app.backend.listeners -= onState
         app.controller.listeners -= onChange
     }
 
@@ -111,10 +112,15 @@ class MainActivity : AndroidActivity() {
         val prefs = app.overlayPrefs
         val label = text("", 14f)
         fun show() = prefs.offset(landscape).let { label.text = "$name: ${it.xDp} dp from the right, ${it.yDp} dp from the centre" }
+        fun moved(offset: Offset) {
+            prefs.setOffset(landscape, offset)
+            show()
+            app.overlay?.previewPosition()
+        }
         show()
         content.addView(label)
-        content.addView(seek(0, 400, prefs.offset(landscape).xDp) { prefs.setOffset(landscape, prefs.offset(landscape).copy(xDp = it)); show() })
-        content.addView(seek(-500, 500, prefs.offset(landscape).yDp) { prefs.setOffset(landscape, prefs.offset(landscape).copy(yDp = it)); show() })
+        content.addView(seek(0, 400, prefs.offset(landscape).xDp) { moved(prefs.offset(landscape).copy(xDp = it)) })
+        content.addView(seek(-500, 500, prefs.offset(landscape).yDp) { moved(prefs.offset(landscape).copy(yDp = it)) })
     }
 
     private fun seek(min: Int, max: Int, value: Int, onChange: (Int) -> Unit) = SeekBar(this).apply {
