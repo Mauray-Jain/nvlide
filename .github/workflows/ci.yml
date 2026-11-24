@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests and debug APK
+        run: ./gradlew testDebugUnitTest assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nvlide-debug
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NVLIDE_KEYSTORE_BASE64 }}
+          NVLIDE_KEYSTORE_PASSWORD: ${{ secrets.NVLIDE_KEYSTORE_PASSWORD }}
+          NVLIDE_KEY_ALIAS: ${{ secrets.NVLIDE_KEY_ALIAS }}
+          NVLIDE_KEY_PASSWORD: ${{ secrets.NVLIDE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export NVLIDE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          fi
+          ./gradlew assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: nvlide-release
+          path: app/build/outputs/apk/release/*.apk

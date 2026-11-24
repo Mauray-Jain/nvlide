@@ -8,6 +8,16 @@ again, even after you close it or reboot. nvlide never takes over the volume key
 
 Runs without root via [Shizuku](https://shizuku.rikka.app/).
 
-> **Status: planning.** See [PLAN.md](PLAN.md) for the design, decisions and milestones. No code yet.
+> **Status: first version, not yet tested on a device.** See [PLAN.md](PLAN.md) for the design, decisions and
+> milestones.
+
+## Build
+
+```bash
+./gradlew testDebugUnitTest assembleDebug
+```
+
+The APK lands in `app/build/outputs/apk/debug/`. Install it, open nvlide and follow the setup checklist
+(Shizuku running, Shizuku permission, accessibility service, battery optimisation off).
 
 Inspired by [KrishBnsl/ntvslide](https://github.com/KrishBnsl/ntvslide).

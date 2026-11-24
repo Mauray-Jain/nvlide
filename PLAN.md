@@ -4,7 +4,8 @@ Per-app volume sliders for Nothing phones. The stock Nothing OS volume panel sta
 small pill beside it that expands into **one slider per app**, drawn in the same style. Each app keeps its
 level after it is closed. No root: privileged calls go through [Shizuku](https://shizuku.rikka.app/).
 
-Status: **planning only, no code yet.**
+Status: **M1–M5 code written, not yet checked on a device.** M0 (the go/no-go test matrix) is the next step,
+run on the phone with the live card in the setup screen.
 
 ---
 
@@ -33,6 +34,17 @@ per-app EQ, controlling calls/alarms per app, work profile apps, root backend.
 | Layout | **Responsive.** Pill and card follow the stock panel in portrait and landscape: separate offset per orientation in settings, card height scales with the screen (shorter sliders in landscape), horizontal scroll when apps don't fit, recomputed on configuration change. |
 | Shizuku down | Every key press shows the pill in a "start Shizuku" state; tap opens Shizuku. |
 | Known limits | Screenshots may include the pill/card. Players that ignore the proxy volume won't respond. |
+| Package | `com.nvlide`. |
+| Player → app | The privileged service maps pid → package (it is the only side that can list every running process) and sends `(package, piid, playing)` per player. Players with uid < 10000 or an unknown pid are dropped there. |
+| Player list | Public `AudioManager.registerAudioPlaybackCallback` inside the shell-uid service (needs the Shizuku app v13+, which passes a `Context` to the user service); only the `@SystemApi` getters and `PlayerProxy.setVolume` use reflection. |
+| HiddenApiBypass | Not added: the Shizuku user service runs under `app_process`, where hidden-API checks are off. Add it only if M0 shows reflection blocked. |
+| Pill state | Shizuku stopped → "Start Shizuku" (opens Shizuku). Permission missing → "Set up nvlide" (opens the setup screen). Still connecting → no pill. Pill shows the number of apps playing now. |
+| Pill offset | Per orientation, in dp: x from the right edge, y from the vertical centre. Defaults 88/−160 portrait, 88/−60 landscape; set in the setup screen. |
+| Card size | Slider height = 28 % of screen height in portrait, 45 % in landscape, clamped to 120–280 dp; width capped to the screen. |
+| Back to 100 % | Moving an adjusted app back to 100 % still sends `setVolume(1.0)`; new players of an app at 100 % unmuted get no call. |
+| Idle order | Inside a group (playing / recent / idle) apps keep the order of the player list. |
+| M0 spike | The setup screen shows the live app card while Shizuku is connected, so the test matrix can be run without the overlay. |
+| Release | Minify off (reflection + Shizuku user service by class name). CI builds a debug APK on every push; a `v*` tag also builds the release APK, signed when the `NVLIDE_KEYSTORE_*` secrets are set. |
 
 ## 3. Target UI
 
@@ -80,10 +92,12 @@ Start with the fewest pieces that work; split only when a file gets hard to read
 
 | Piece | Responsibility |
 | --- | --- |
-| `VolumeKeyService` | Sees volume keys (never consumes them), owns the overlay, timeout, orientation changes. |
-| `ui/` | Views: pill, app card, slider. |
+| `NvlideApp` | Creates the one store, backend and controller; re-applies on audio mode change. |
+| `VolumeKeyService` | Sees volume keys (never consumes them), forwards key presses and rotation to `ui/Overlay`. |
+| `ui/` | `Overlay` (window, timeout, outside tap, rotation), pill, app card, slider. |
 | `AppVolumeController` | Joins open players + saved levels, orders apps, applies levels. |
 | `AppVolumeStore` | Package → level/mute, in SharedPreferences. |
+| `OverlayPrefs` | Pill offset per orientation. |
 | `backend/` | Shizuku binding + the privileged service + AIDL. All hidden-API reflection lives only here. |
 | `MainActivity` | Setup checklist (Shizuku, permission, accessibility, battery optimisation) and settings (offsets). |
 
@@ -95,7 +109,7 @@ pan and start/pause/stop don't touch it, so **no polling is needed**. It is lost
 each one has an event:
 
 1. Shell process gets playback config changes → pushes `(pid, uid, piid, state)` list to the app.
-2. Controller maps pid → package, groups players, updates the card.
+2. The shell service maps pid → package; the controller groups players by package and updates the card.
 3. For packages with a saved level ≠ 100 % or muted → `setVolume` on every player of that package.
 4. **New player instance** (next track, app restarted, after reboot) starts at 100 % → step 1 fires → re-applied.
 5. **System resets player volume** (e.g. other apps muted during a phone call, reset to 100 % after) → re-apply
@@ -120,13 +134,16 @@ each one has an event:
       calls `setVolume`. Run the test matrix on the phone and check the level survives: pause/resume, next track,
       app restart, a phone call, Shizuku restart. **No-go:** if shell can't see pid/uid or the player proxy, or
       `setVolume` doesn't stick on most of the matrix, stop and re-plan.
-- [ ] **M1 — Skeleton.** Gradle, Shizuku, AIDL, unit-test setup.
-- [ ] **M2 — Backend + memory.** Playback callback, setVolume, store, re-apply on new players / mode change /
+- [x] **M1 — Skeleton.** Gradle, Shizuku, AIDL, unit-test setup.
+- [x] **M2 — Backend + memory.** Playback callback, setVolume, store, re-apply on new players / mode change /
       reconnect.
-- [ ] **M3 — Overlay.** Accessibility service, pill beside the stock panel, timeout, lock screen, per-orientation
+- [x] **M3 — Overlay.** Accessibility service, pill beside the stock panel, timeout, lock screen, per-orientation
       offset setting.
-- [ ] **M4 — App card.** Sliders, icons, mute, ordering, paused state, responsive sizing, animation, haptics.
-- [ ] **M5 — Setup & polish.** Setup checklist, TalkBack, battery check, CI debug APK, release APK.
+- [x] **M4 — App card.** Sliders, icons, mute, ordering, paused state, responsive sizing, animation, haptics.
+- [x] **M5 — Setup & polish.** Setup checklist, TalkBack, battery check, CI debug APK, release APK.
+
+M1–M5 are written and unit-tested where possible; everything device-side still needs the M0 run and the
+manual checks in section 7.
 
 ## 7. Testing
 
