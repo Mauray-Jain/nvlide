@@ -20,3 +20,9 @@ when a decision changes.
 - Prefer deleting code over adding it. Small files and small functions; split when something is hard to read,
   not before.
 - Kotlin idioms, standard Android/Jetpack libraries; match the existing style of the file you edit.
+
+## Tests first
+
+- For any logic change, write a failing unit test first, then the simplest implementation that makes it pass.
+- Code that can't be unit-tested (overlay UI, hidden-API calls in `backend/`) gets a manual on-device check,
+  written down in the commit message.
