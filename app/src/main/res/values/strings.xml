@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">nvlide</string>
+    <string name="service_description">Shows per-app volume sliders beside the volume panel when you press a volume key. nvlide only watches the volume keys; it never blocks them or reads screen content.</string>
+</resources>

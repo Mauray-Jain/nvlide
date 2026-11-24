@@ -21,7 +21,8 @@ class AppVolumeController(
     private val ownPackage: String,
     private val now: () -> Long = SystemClock::elapsedRealtime,
 ) {
-    var onChange: (() -> Unit)? = null
+    /** Called on the main thread after anything shown in the card changed. */
+    val listeners = mutableSetOf<() -> Unit>()
 
     private var players = emptyList<Player>()
     private val handled = mutableSetOf<Int>()
@@ -39,14 +40,14 @@ class AppVolumeController(
             val v = store.get(p.packageName)
             if (v.isAdjusted) setVolume(p.piid, v.volume)
         }
-        onChange?.invoke()
+        notifyChanged()
     }
 
     /** Call when the privileged service went away; its next player list is applied afresh. */
     fun onBackendLost() {
         players = emptyList()
         handled.clear()
-        onChange?.invoke()
+        notifyChanged()
     }
 
     /** Re-applies every adjusted app, e.g. after the system reset player volumes during a call. */
@@ -80,8 +81,10 @@ class AppVolumeController(
         val v = change(store.get(pkg))
         store.put(pkg, v)
         players.filter { it.packageName == pkg }.forEach { setVolume(it.piid, v.volume) }
-        onChange?.invoke()
+        notifyChanged()
     }
+
+    private fun notifyChanged() = listeners.toList().forEach { it() }
 
     private fun playingPackages() = players.filter { it.playing }.map { it.packageName }.toSet()
 

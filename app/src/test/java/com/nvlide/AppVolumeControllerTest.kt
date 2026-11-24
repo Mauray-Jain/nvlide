@@ -143,7 +143,7 @@ class AppVolumeControllerTest {
     @Test
     fun changesNotifyTheListener() {
         var changes = 0
-        controller.onChange = { changes++ }
+        controller.listeners += { changes++ }
         controller.onPlayers(listOf(player("spotify", 1)))
         controller.setLevel("spotify", 10)
         controller.toggleMute("spotify")

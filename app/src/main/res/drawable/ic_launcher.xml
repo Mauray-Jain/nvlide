@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three vertical sliders on a dark disc. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#1C1C1E" android:pathData="M54,4a50,50 0,1 1,0 100a50,50 0,1 1,0 -100z" />
+    <path android:fillColor="#F2F2F2" android:pathData="M30,44h12v32h-12z" />
+    <path android:fillColor="#F2F2F2" android:pathData="M48,30h12v46h-12z" />
+    <path android:fillColor="#D71921" android:pathData="M66,56h12v20h-12z" />
+</vector>
