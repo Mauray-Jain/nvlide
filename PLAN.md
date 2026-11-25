@@ -151,5 +151,5 @@ Tests are written before the implementation (see CLAUDE.md).
 
 - Unit: controller with a fake backend (only adjusted apps touched, mute = 0, re-apply on new player / mode change
   / reconnect, ordering playing → recent → idle, uninstalled package skipped).
-- Manual on device: test matrix, reboot + Shizuku restart, force-stop then replay keeps level, rotate while the
-  card is open.
+- Manual on device: the full checklist is in [TESTING.md](TESTING.md) (M0 test matrix first, then memory,
+  untouched key behaviour, pill, card, TalkBack).
