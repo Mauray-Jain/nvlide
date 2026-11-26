@@ -47,7 +47,7 @@ per-app EQ, controlling calls/alarms per app, work profile apps, root backend.
 | Idle order | Inside a group (playing / recent / idle) apps keep the order of the player list. |
 | M0 spike | The setup screen shows the live app card while Shizuku is connected, so the test matrix can be run without the overlay. |
 | Build | Gradle 8.14 needs JDK 17–24 (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk` on a machine whose default is newer). `targetSdk 35` is edge-to-edge, so the setup screen fits system windows itself. |
-| Release | Minify off (reflection + Shizuku user service by class name). CI builds a debug APK on every push. A `v*` tag builds the release APK signed with the release key (`NVLIDE_KEYSTORE_BASE64`, `NVLIDE_KEYSTORE_PASSWORD`, `NVLIDE_KEY_ALIAS`, `NVLIDE_KEY_PASSWORD` secrets; the tag fails without them rather than ship unsigned), verifies the signature and publishes it as a GitHub Release (`nvlide-<version>.apk`). The key's only other copy is kept off-repo by the owner; every future release must use the same key. |
+| Release | Minify off (reflection + Shizuku user service by class name). CI builds a debug APK on every push. A `v*` tag builds the release APK signed with the release key (`NVLIDE_KEYSTORE_BASE64`, `NVLIDE_KEYSTORE_PASSWORD`, `NVLIDE_KEY_ALIAS`, `NVLIDE_KEY_PASSWORD` secrets; the tag fails without them rather than ship unsigned), verifies the signature and publishes it as a GitHub Release (`nvlide-<version>.apk`). The key's local copy lives in `keys/` (git-ignored; back it up separately); every future release must use the same key. |
 
 ## 3. Target UI
 

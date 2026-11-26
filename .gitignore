@@ -12,3 +12,6 @@ build/
 *.keystore
 *.jks
 CLAUDE.local.md
+
+# Release signing key and its passwords: never commit (CI has its own copy in secrets)
+keys/
