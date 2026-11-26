@@ -17,4 +17,21 @@ class AppVolumeStoreTest {
         assertEquals(AppVolume(40, true), store.get("a"))
         assertEquals(AppVolume(100, false), store.get("b"))
     }
+
+    @Test
+    fun lowLatencyMarkIsKeptPerPackage() {
+        assertEquals(false, store.isLowLatency("a"))
+        store.setLowLatency("a", true)
+        assertEquals(true, store.isLowLatency("a"))
+        assertEquals(false, store.isLowLatency("b"))
+        store.setLowLatency("a", false)
+        assertEquals(false, store.isLowLatency("a"))
+    }
+
+    @Test
+    fun allListsEverySavedPackage() {
+        store.put("a", AppVolume(40, true))
+        store.put("b", AppVolume(100, false))
+        assertEquals(mapOf("a" to AppVolume(40, true), "b" to AppVolume(100, false)), store.all())
+    }
 }

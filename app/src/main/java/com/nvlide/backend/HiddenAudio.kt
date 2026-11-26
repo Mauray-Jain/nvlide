@@ -7,7 +7,7 @@ import android.media.AudioPlaybackConfiguration
  * Only works in the shell-uid service: other callers get anonymized configurations.
  */
 internal object HiddenAudio {
-    class Info(val pid: Int, val uid: Int, val piid: Int, val playing: Boolean)
+    class Info(val pid: Int, val uid: Int, val piid: Int, val playing: Boolean, val aaudio: Boolean)
 
     private const val PLAYER_STATE_STARTED = 2
 
@@ -17,6 +17,8 @@ internal object HiddenAudio {
     private val getPiid = cls.getMethod("getPlayerInterfaceId")
     private val getState = cls.getMethod("getPlayerState")
     private val getProxy = cls.getMethod("getPlayerProxy")
+    private val getType = cls.getMethod("getPlayerType")
+    private val typeAAudio = cls.getField("PLAYER_TYPE_AAUDIO").getInt(null)
     private val proxySetVolume = Class.forName("android.media.PlayerProxy")
         .getMethod("setVolume", Float::class.javaPrimitiveType)
 
@@ -25,6 +27,7 @@ internal object HiddenAudio {
         uid = getUid.invoke(c) as Int,
         piid = getPiid.invoke(c) as Int,
         playing = getState.invoke(c) as Int == PLAYER_STATE_STARTED,
+        aaudio = getType.invoke(c) as Int == typeAAudio,
     )
 
     fun setVolume(c: AudioPlaybackConfiguration, volume: Float) {

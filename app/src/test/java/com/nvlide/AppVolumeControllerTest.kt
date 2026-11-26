@@ -4,92 +4,59 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AppVolumeControllerTest {
-    private val calls = mutableListOf<Pair<Int, Float>>()
+    private val calls = mutableListOf<Pair<String, Float>>()
     private val store = AppVolumeStore(FakePrefs())
     private var time = 0L
     private val installed = mutableSetOf("spotify", "youtube", "chrome", "com.nvlide")
     private val controller = AppVolumeController(
         store = store,
-        setVolume = { piid, volume -> calls += piid to volume },
+        sendLevel = { pkg, volume -> calls += pkg to volume },
         isInstalled = { it in installed },
         ownPackage = "com.nvlide",
         now = { time },
     )
 
-    private fun player(pkg: String, piid: Int, playing: Boolean = true) = Player(pkg, piid, playing)
+    private fun player(pkg: String, piid: Int, playing: Boolean = true, lowLatency: Boolean = false) =
+        Player(pkg, piid, playing, lowLatency)
 
     @Test
-    fun appsThatWereNeverAdjustedGetNoCalls() {
-        controller.onPlayers(listOf(player("spotify", 1), player("youtube", 2)))
-        assertEquals(emptyList<Pair<Int, Float>>(), calls)
-    }
-
-    @Test
-    fun savedLevelIsAppliedToNewPlayersOnce() {
+    fun playerChangesNeverSetVolumes() {
         store.put("spotify", AppVolume(30, false))
         controller.onPlayers(listOf(player("spotify", 1), player("youtube", 2)))
-        controller.onPlayers(listOf(player("spotify", 1, playing = false), player("youtube", 2)))
-        assertEquals(listOf(1 to 0.3f), calls)
-    }
-
-    @Test
-    fun nextTrackPlayerGetsTheLevelAgain() {
-        store.put("spotify", AppVolume(30, false))
-        controller.onPlayers(listOf(player("spotify", 1)))
         controller.onPlayers(listOf(player("spotify", 7)))
-        assertEquals(listOf(1 to 0.3f, 7 to 0.3f), calls)
+        assertEquals(emptyList<Pair<String, Float>>(), calls)
     }
 
     @Test
-    fun mutedAppIsSetToZero() {
-        store.put("spotify", AppVolume(100, true))
-        controller.onPlayers(listOf(player("spotify", 1)))
-        assertEquals(listOf(1 to 0f), calls)
-    }
-
-    @Test
-    fun settingALevelAppliesToEveryPlayerOfThatAppAndIsSaved() {
-        controller.onPlayers(listOf(player("spotify", 1), player("spotify", 2), player("youtube", 3)))
+    fun settingALevelSendsItForThePackageAndSavesIt() {
         controller.setLevel("spotify", 50)
-        assertEquals(listOf(1 to 0.5f, 2 to 0.5f), calls)
+        assertEquals(listOf("spotify" to 0.5f), calls)
         assertEquals(AppVolume(50, false), store.get("spotify"))
     }
 
     @Test
-    fun movingBackToFullVolumeIsStillApplied() {
-        controller.onPlayers(listOf(player("spotify", 1)))
+    fun movingBackToFullVolumeIsStillSent() {
         controller.setLevel("spotify", 50)
         controller.setLevel("spotify", 100)
-        assertEquals(listOf(1 to 0.5f, 1 to 1f), calls)
+        assertEquals(listOf("spotify" to 0.5f, "spotify" to 1f), calls)
     }
 
     @Test
     fun toggleMuteKeepsTheLevel() {
         store.put("spotify", AppVolume(60, false))
-        controller.onPlayers(listOf(player("spotify", 1)))
-        calls.clear()
         controller.toggleMute("spotify")
         controller.toggleMute("spotify")
-        assertEquals(listOf(1 to 0f, 1 to 0.6f), calls)
+        assertEquals(listOf("spotify" to 0f, "spotify" to 0.6f), calls)
         assertEquals(AppVolume(60, false), store.get("spotify"))
     }
 
     @Test
-    fun modeBackToNormalReappliesOnlyAdjustedApps() {
+    fun sendAllSendsEveryAdjustedAppEvenWhenNotPlaying() {
         store.put("spotify", AppVolume(30, false))
-        controller.onPlayers(listOf(player("spotify", 1), player("youtube", 2)))
-        calls.clear()
-        controller.reapplyAll()
-        assertEquals(listOf(1 to 0.3f), calls)
-    }
-
-    @Test
-    fun reconnectReappliesAdjustedApps() {
-        store.put("spotify", AppVolume(30, false))
-        controller.onPlayers(listOf(player("spotify", 1)))
-        controller.onBackendLost()
-        controller.onPlayers(listOf(player("spotify", 1)))
-        assertEquals(listOf(1 to 0.3f, 1 to 0.3f), calls)
+        store.put("youtube", AppVolume(100, true))
+        store.put("chrome", AppVolume(100, false))
+        controller.sendAll()
+        assertEquals(setOf("spotify" to 0.3f, "youtube" to 0f), calls.toSet())
     }
 
     @Test
@@ -104,12 +71,51 @@ class AppVolumeControllerTest {
         store.put("gone", AppVolume(30, false))
         controller.onPlayers(listOf(player("com.nvlide", 1), player("gone", 2), player("chrome", 3)))
         assertEquals(listOf("chrome"), controller.apps().map { it.packageName })
-        assertEquals(emptyList<Pair<Int, Float>>(), calls)
+    }
+
+    @Test
+    fun appsShowOnlyOnceOneOfTheirPlayersHasPlayed() {
+        // An app that only keeps an idle player open (e.g. a system app's preloaded sounds) never shows.
+        controller.onPlayers(listOf(player("chrome", 1, playing = false)))
+        assertEquals(emptyList<String>(), controller.apps().map { it.packageName })
+        controller.onPlayers(listOf(player("chrome", 1)))
+        controller.onPlayers(listOf(player("chrome", 1, playing = false)))
+        assertEquals(listOf("chrome"), controller.apps().map { it.packageName })
+    }
+
+    @Test
+    fun anAdjustedAppShowsEvenBeforeItPlays() {
+        // e.g. nvlide restarted while YouTube was paused: it was adjusted before, so it still gets its slider.
+        store.put("youtube", AppVolume(30, false))
+        controller.onPlayers(listOf(player("youtube", 1, playing = false), player("chrome", 2, playing = false)))
+        assertEquals(listOf("youtube"), controller.apps().map { it.packageName })
+    }
+
+    @Test
+    fun anAppIsLowLatencyIfAnyOfItsPlayersIs() {
+        controller.onPlayers(listOf(player("spotify", 1, lowLatency = true), player("youtube", 2)))
+        assertEquals(
+            listOf("spotify" to true, "youtube" to false),
+            controller.apps().map { it.packageName to it.lowLatency },
+        )
+    }
+
+    @Test
+    fun lowLatencyStaysWhileTheAppIsIdleAndClearsOnlyWhenItPlaysNormally() {
+        // melonDS closes its low-latency stream in the background, but its player stays: still low-latency.
+        controller.onPlayers(listOf(player("spotify", 1, lowLatency = true)))
+        controller.onPlayers(listOf(player("spotify", 1, playing = false)))
+        assertEquals(true, controller.apps().single().lowLatency)
+        // Seen playing on the normal path (low-latency mode turned off in the app): it can be controlled again.
+        controller.onPlayers(listOf(player("spotify", 2)))
+        assertEquals(false, controller.apps().single().lowLatency)
     }
 
     @Test
     fun appsAreOrderedPlayingThenRecentlyStoppedThenIdle() {
-        // chrome was never seen playing; youtube stops at t=1s.
+        // chrome played and stopped long ago; youtube stops at t=1s.
+        controller.onPlayers(listOf(player("chrome", 2)))
+        time = -20_000
         controller.onPlayers(listOf(player("youtube", 1), player("chrome", 2, playing = false)))
         time = 1_000
         controller.onPlayers(
@@ -128,9 +134,14 @@ class AppVolumeControllerTest {
     }
 
     @Test
-    fun playingCountCountsAppsNotPlayers() {
-        controller.onPlayers(listOf(player("spotify", 1), player("spotify", 2), player("youtube", 3, playing = false)))
-        assertEquals(1, controller.playingCount())
+    fun anAppStaysListedForTenSecondsAfterItsLastPlayerIsReleased() {
+        // YouTube releases its player between Shorts and makes a new one; the slider shouldn't blink out.
+        controller.onPlayers(listOf(player("youtube", 1)))
+        time = 1_000
+        controller.onPlayers(emptyList())
+        assertEquals(listOf("youtube" to Activity.RECENT), controller.apps().map { it.packageName to it.activity })
+        time = 11_001
+        assertEquals(emptyList<AppState>(), controller.apps())
     }
 
     @Test

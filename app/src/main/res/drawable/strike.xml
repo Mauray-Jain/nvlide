@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diagonal strike over an app icon at 0 % or muted, like the stock "_mute" stream icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3,3L21,21"
+        android:strokeWidth="5"
+        android:strokeColor="#303030"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M3,3L21,21"
+        android:strokeWidth="2"
+        android:strokeColor="#C8C8C8"
+        android:strokeLineCap="round" />
+</vector>

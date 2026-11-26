@@ -1,18 +1,19 @@
 # nvlide — plan
 
-Per-app volume sliders for Nothing phones. The stock Nothing OS volume panel stays as it is; nvlide adds a
-small pill beside it that expands into **one slider per app**, drawn in the same style. Each app keeps its
+Per-app volume sliders for Nothing phones. When the stock Nothing OS volume panel is expanded, its row of sliders
+can be **swiped sideways to reach one slider per app**, drawn in the same style. Each app keeps its
 level after it is closed. No root: privileged calls go through [Shizuku](https://shizuku.rikka.app/).
 
-Status: **M1–M5 code written, not yet checked on a device.** M0 (the go/no-go test matrix) is the next step,
-run on the phone with the live card in the setup screen.
+Status: **M0 passed its first check on the phone (Nothing Phone, Android 17, Shizuku 13.6)**: players are read with
+package names, and the slider changes YouTube's loudness and sticks on new players. The overlay was redesigned on
+the device to follow the stock panel window (see Decisions). The rest of the test matrix in TESTING.md is next.
 
 ---
 
 ## 1. Goals
 
-1. On a volume key press, a small nvlide pill appears next to the stock panel.
-2. Tapping the pill slides out a card with one slider per app that has an open audio player.
+1. When the stock volume panel is expanded (›), its slider row scrolls sideways: Media, Ring, Notification, Alarm,
+   then one slider per app, 4 at a time. It goes when the panel goes.
 3. Each app's level is saved by package name and re-applied whenever that app plays again, even after the
    app or the phone restarts.
 4. Works without root, using Shizuku (wireless debugging on Android 11+).
@@ -24,54 +25,54 @@ per-app EQ, controlling calls/alarms per app, work profile apps, root backend.
 
 | Topic | Decision |
 | --- | --- |
-| Panel | **Beside, not replace.** nvlide never consumes volume key events; the stock panel and all system key behaviour (calls, ringing, alarms, camera shutter, cast, Bluetooth, screenshot chord) stay untouched. |
-| Expand | Key press → small pill (`♫ 3` = apps playing now) next to the stock panel. Tap → app card slides out. No pill when no app has an open player. |
-| Which apps | Every app with **at least one unreleased audio player**, ordered: playing → stopped < 10 s ago → paused/idle. An app drops out when its last player is released (closed, swiped from recents, killed). Players are mapped to apps by **pid → running process** (handles shared uids, skips system processes); nvlide itself is skipped. Same model as the Windows mixer and VolumeManager. |
-| Memory | Level + mute saved per package, forever. Re-applied to every new player of a package whose level ≠ 100 % or is muted. Dragging a slider applies immediately. |
+| Panel | **Beside, not replace.** nvlide never sees or consumes volume key events; the stock panel and all system key behaviour (calls, ringing, alarms, camera shutter, cast, Bluetooth, screenshot chord) stay untouched. |
+| Follow the panel | The accessibility service watches window changes, and System UI's content changes, for the stock panel's body (`com.android.systemui:id/volume_dialog_background`) and shows nvlide **exactly while it is on screen**, placed from its live bounds. The stock panel slides in and out from the left edge; a body touching the edge counts as gone, so nvlide leaves as the slide-out starts (~30 ms) instead of after it (~120 ms later). No key filtering, no own timeout, no outside-tap handling. |
+| When | **Only while the stock panel is expanded** (wider than one column). Nothing while it is collapsed. No pill (tried on the device and dropped: it got in the way and lagged the panel). |
+| Inside the box | nvlide can't add views to System UI, so it covers **only the stock slider row** (`horizontal_sliders_container`) with an opaque window holding a sideways-scrolling copy: the stock stream rows first (same system volumes through the public `AudioManager` stream API, refreshed on `VOLUME_CHANGED_ACTION`), then the apps. The ringer buttons, SEE MORE and captions stay Nothing's. Rows are read from the stock sliders' labels (Media, Call, Ring, Notification, Alarm); any other row → nvlide stays out and the stock panel shows as is. A separate box under or beside the panel was tried on the device and dropped. |
+| Touch | Vertical drag sets a level, sideways swipe scrolls the row, tap jumps to where it lands (like the stock slider). |
+| Keep open | Any touch on nvlide restarts the stock panel's hide timer with `adjustSuggestedStreamVolume(ADJUST_SAME, USE_DEFAULT_STREAM_TYPE, FLAG_SHOW_UI)` (at most once a second): no volume changes, but the stock panel, and so nvlide, stays while a slider is dragged. |
+| Which apps | Apps with an unreleased **media/game** player (`USAGE_MEDIA`, `USAGE_GAME`, `USAGE_UNKNOWN`; the service drops calls, ringtones, alarms, notifications and UI sounds) **that has played at least once, or that the user adjusted before** (so idle players kept open by system apps, e.g. System UI and Nothing X, don't show, but a paused adjusted app still does after nvlide restarts). Ordered: playing → stopped < 10 s ago → paused/idle. An app stays listed 10 s after its last player is released (YouTube swaps players between Shorts), then drops out. Paused apps are not dimmed (the stock panel doesn't dim either; it read as random flicker). Players are mapped to apps by **pid → running process** (handles shared uids, skips system processes); nvlide itself is skipped. |
+| Memory | Level + mute saved per package, forever. The privileged service keeps the level of every adjusted package and sets it on a new player **in the callback that first reports it** (YouTube makes a new player for every Short and replay; going through the app first let it play loud for a moment). Dragging a slider applies immediately. |
 | Keys | Stock behaviour only. |
-| Timeout | Card stays 3 s after the last touch, even if the stock panel already hid; tap outside closes it. |
-| Lock screen | Pill shows on the lock screen like the stock panel; sliders work without unlocking. |
-| Layout | **Responsive.** Pill and card follow the stock panel in portrait and landscape: separate offset per orientation in settings, card height scales with the screen (shorter sliders in landscape), horizontal scroll when apps don't fit, recomputed on configuration change. |
-| Shizuku down | Every key press shows the pill in a "start Shizuku" state; tap opens Shizuku. |
-| Known limits | Screenshots may include the pill/card. Players that ignore the proxy volume won't respond. |
+| Lock screen | nvlide shows wherever the stock panel does; sliders work without unlocking. |
+| Layout | Exactly the stock slider row's live bounds, 58 dp columns, so as many columns show at once as the stock panel shows (4). No settings. |
+| Shizuku down | Expanded stock panel → the stream rows, then a round "Start Shizuku" button where the apps go; tap opens Shizuku. |
+| Known limits | Screenshots may include nvlide's row. Players that ignore the proxy volume won't respond; this includes every app on an exclusive low-latency AAudio stream (many emulators and games, e.g. melonDS). A new player can still be loud for the few ms before Android reports it (most are reported only once started). nvlide depends on the stock panel's view id; another OEM skin or a Nothing OS update may rename it. |
 | Package | `com.nvlide`. |
 | Player → app | The privileged service maps pid → package (it is the only side that can list every running process) and sends `(package, piid, playing)` per player. Players with uid < 10000 or an unknown pid are dropped there. |
 | Player list | Public `AudioManager.registerAudioPlaybackCallback` inside the shell-uid service (needs the Shizuku app v13+, which passes a `Context` to the user service); only the `@SystemApi` getters and `PlayerProxy.setVolume` use reflection. |
 | HiddenApiBypass | Not added: the Shizuku user service runs under `app_process`, where hidden-API checks are off. Add it only if M0 shows reflection blocked. |
-| Pill state | Shizuku stopped → "Start Shizuku" (opens Shizuku). Permission missing → "Set up nvlide" (opens the setup screen). Still connecting → no pill. Pill shows the number of apps playing now. The overlay follows Shizuku and player changes while shown: the open card closes when the last app goes away, and turns back into the hint pill if Shizuku stops. |
-| Pill offset | Per orientation, in dp: x from the right edge, y from the vertical centre. Defaults 88/−160 portrait, 88/−60 landscape; set in the setup screen, which shows the pill live while the sliders move. |
-| Card size | Slider height = 28 % of screen height in portrait, 45 % in landscape, clamped to 120–280 dp; width capped to the screen. |
+| Hint state | Shizuku stopped → "Start Shizuku" (opens Shizuku). Permission missing → "Set up nvlide" (opens the setup screen). Still connecting → nothing. The overlay follows Shizuku and player changes while shown: the card closes when the last app goes away, and turns into the hint if Shizuku stops. |
 | Back to 100 % | Moving an adjusted app back to 100 % still sends `setVolume(1.0)`; new players of an app at 100 % unmuted get no call. |
 | Idle order | Inside a group (playing / recent / idle) apps keep the order of the player list. |
 | M0 spike | The setup screen shows the live app card while Shizuku is connected, so the test matrix can be run without the overlay. |
+| Build | Gradle 8.14 needs JDK 17–24 (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk` on a machine whose default is newer). `targetSdk 35` is edge-to-edge, so the setup screen fits system windows itself. |
 | Release | Minify off (reflection + Shizuku user service by class name). CI builds a debug APK on every push; a `v*` tag also builds the release APK, signed when the `NVLIDE_KEYSTORE_*` secrets are set. |
 
 ## 3. Target UI
 
 ```
- stock panel        nvlide
- ( 🔊 )
- ┌───┐              ┌──────────────────────────┐
- │ · │   ( ♫ 3 ) →  │  ┌───┐  ┌───┐  ┌───┐     │
- │ █ │   tap        │  │ · │  │ █ │  │ · │     │
- │ ● │              │  │ █ │  │ █ │  │ ● │     │
- │ ♪ │              │  │ ▶ │  │ ◎ │  │ ✈ │     │ ← monochrome app icons
- │ › │              │  └───┘  └───┘  └───┘     │
- └───┘              └──────────────────────────┘
+ ( 🔇   📳   🔊 )                ← stock
+ ┌─────────────────────┐
+ │ ·    █    ·    █    │ ·    █    ·      ← swipe sideways
+ │ █    █    ●    █    │ █    █    █
+ │ ♪    ☎    🔔    ⏰    │ ▶    ◎    ✈      ← apps after the streams
+ │      SEE MORE       │                  ← stock
+ └─────────────────────┘
 ```
 
-Visual tokens (match the Nothing OS panel in the screenshots):
+Visual tokens (measured from the stock panel on the phone, 420 dpi):
 
 | Token | Value |
 | --- | --- |
-| Card surface | `#1C1C1E`, 28 dp corner radius |
-| Slider track | 40 dp pill, `#2A2A2C` |
-| Filled level | `#F2F2F2` |
-| Empty part | dotted column, 2 dp dots `#4A4A4C`, 10 dp pitch |
-| Zero handle | 12 dp off-white dot |
+| Surface | `#303030`; card box 22 dp corner radius (like the expanded panel); hint button fully round |
+| Column | 58 dp wide; track fills the row above a 42 dp icon strip, like the stock row |
+| Filled level | 11.5 dp wide `#F1F1F1` capsule, bottom-aligned, height = width + level × (track − width): a round dot at 0, the full track at 100 % (measured on the stock row to ±1 px). Level = volume index ÷ max, like the stock row (alarm 11/16 → 69 %). |
+| Empty part | dotted column, 4 dp dots `#474747`, 10 dp pitch |
+| Icons | Stream rows use **System UI's own drawables** (loaded by name from its resources: `ic_volume_media`, `ic_ring_volume`, `ic_volume_ringer`, `ic_volume_alarm`, `ic_volume_voice_chat`), switching to their `_mute`/`_off` versions at 0 % like the stock row; tinted `#BFBFBF`; 23 dp. App icons greyscale, with a strike at 0 % or muted. |
 | Muted app | fill → Nothing red `#D71921`, icon dimmed; tap icon toggles mute |
-| Paused app | slider at 60 % opacity |
-| Motion | 220 ms slide-out; haptic tick every 10 % |
+| Dragging | level bar widens from 11.5 dp to 36 dp (150 ms) and its rounded top rises by as much; shrinks back on release, like the stock slider |
+| Haptics | tick every 10 % |
 
 ## 4. Architecture
 
@@ -80,11 +81,12 @@ Kotlin, plain Android Views, `minSdk 31`, `compileSdk`/`targetSdk 35`.
 ```
 app process                                          Shizuku user service (shell uid)
 ┌─────────────────────────────────────────┐          ┌────────────────────────────────────┐
-│ VolumeKeyService (AccessibilityService) │          │ PrivilegedAudioService             │
-│   onKeyEvent → show pill, return false  │          │   IAudioService via reflection     │
-│   TYPE_ACCESSIBILITY_OVERLAY window     │   AIDL   │   • playback callback → push list  │
-│ AppVolumeController                     │◄────────►│   • PlayerProxy.setVolume(f)       │
-│ AppVolumeStore (SharedPreferences)      │          └────────────────────────────────────┘
+│ StockPanelService (AccessibilityService)│          │ PrivilegedAudioService             │
+│   windows changed → stock panel bounds  │          │   • playback callback → push list  │
+│   TYPE_ACCESSIBILITY_OVERLAY windows    │   AIDL   │   • package levels → set on new    │
+│ AppVolumeController                     │◄────────►│     players at once                │
+│ AppVolumeStore (SharedPreferences)      │          │   • PlayerProxy.setVolume(f)       │
+│                                         │          └────────────────────────────────────┘
 └─────────────────────────────────────────┘
 ```
 
@@ -92,14 +94,14 @@ Start with the fewest pieces that work; split only when a file gets hard to read
 
 | Piece | Responsibility |
 | --- | --- |
-| `NvlideApp` | Creates the one store, backend and controller; re-applies on audio mode change. |
-| `VolumeKeyService` | Sees volume keys (never consumes them), forwards key presses and rotation to `ui/Overlay`. |
-| `ui/` | `Overlay` (window, timeout, outside tap, rotation), pill, app card, slider. |
-| `AppVolumeController` | Joins open players + saved levels, orders apps, applies levels. |
+| `NvlideApp` | Creates the one store, backend and controller; re-sends levels on audio mode change. |
+| `StockPanelService` | Finds the stock panel's body on every window change and hands its bounds (or null) to `ui/Overlay`. |
+| `StreamVolumes` | Stock row labels → streams; stream volume ↔ slider level, through the public `AudioManager` API. |
+| `ui/` | `Overlay` (the window over the stock slider row, keeps the stock panel open while touched), `PanelLayout`, `PanelStripView` (the scrolling row), slider, hint button. |
+| `AppVolumeController` | Joins open players + saved levels, picks and orders apps, sends levels by package. |
 | `AppVolumeStore` | Package → level/mute, in SharedPreferences. |
-| `OverlayPrefs` | Pill offset per orientation. |
 | `backend/` | Shizuku binding + the privileged service + AIDL. All hidden-API reflection lives only here. |
-| `MainActivity` | Setup checklist (Shizuku, permission, accessibility, battery optimisation) and settings (offsets). |
+| `MainActivity` | Setup checklist (Shizuku, permission, accessibility, battery optimisation) and the live app card. |
 
 ### How the volume is applied
 
@@ -108,23 +110,25 @@ AOSP keeps the volume set through `PlayerProxy.setVolume` in a separate multipli
 pan and start/pause/stop don't touch it, so **no polling is needed**. It is lost only in the cases below, and
 each one has an event:
 
-1. Shell process gets playback config changes → pushes `(pid, uid, piid, state)` list to the app.
-2. The shell service maps pid → package; the controller groups players by package and updates the card.
-3. For packages with a saved level ≠ 100 % or muted → `setVolume` on every player of that package.
-4. **New player instance** (next track, app restarted, after reboot) starts at 100 % → step 1 fires → re-applied.
-5. **System resets player volume** (e.g. other apps muted during a phone call, reset to 100 % after) → re-apply
+1. The app sends the shell service the level of every adjusted package (on connect, and on every change).
+2. Shell process gets playback config changes → maps pid → package, sets the saved level on every **new** player of
+   an adjusted package right there, then pushes the `(package, piid, playing)` list to the app for the card.
+3. Moving a slider → the package's level goes to the service → `setVolume` on every player of that package.
+   Back to 100 % unmuted → set once more, then new players of that package are left alone.
+4. **New player instance** (next track, next Short, app restarted, after reboot) starts at 100 % → step 2.
+5. **System resets player volume** (e.g. other apps muted during a phone call, reset to 100 % after) → re-send
    all adjusted packages when audio mode returns to normal (`AudioManager.addOnModeChangedListener`).
-6. **Shizuku service reconnects** → re-apply all adjusted packages.
+6. **Shizuku service reconnects** → re-send all adjusted packages.
 
 ## 5. Risks
 
 | Risk | Check |
 | --- | --- |
 | Shell uid gets anonymized `AudioPlaybackConfiguration` (no pid/uid / proxy) on Nothing OS | M0 spike |
-| Some players ignore `PlayerProxy.setVolume` (AAudio MMAP, OpenSL, some games) | M0 test matrix: Spotify, YouTube, Chrome, Instagram, WhatsApp, one game, PPSSPP |
+| Some players ignore `PlayerProxy.setVolume` (AAudio MMAP, OpenSL, some games) | **Confirmed for exclusive MMAP AAudio** (melonDS: `type:AAudio`, `AUDIO_OUTPUT_FLAG_MMAP_NOIRQ`, an "Exclusive MMAP Endpoint" in `dumpsys media.aaudio`): the stream goes straight to the HAL and the level has no effect. The only system switch, `aaudio.mmap_exclusive_policy`, can't be set by the shell uid (setprop is refused), and blocking the app's `PLAY_AUDIO` app-op doesn't silence an MMAP stream either, so there's no fix without root. Workarounds: the app's own volume, or turning off its low-latency mode (melonDS: Audio latency → Medium). nvlide detects these apps (AAudio players whose pid has a stream in `dumpsys media.aaudio`, read by the shell service) and greys their slider out, without the mute colour; the mark is saved per app and cleared only when the app is seen playing on the normal path (these apps close their stream in the background); a tap explains why inside the panel (toasts from the service are dropped while nvlide's notifications are off). Rest of the M0 matrix still to run. |
 | System resets player volume (calls, possibly other cases) | M0: level survives a phone call; re-apply on mode change |
 | Hidden-API restrictions in the user-service process | Add `HiddenApiBypass` only if needed |
-| Shizuku not running after reboot | "Start Shizuku" pill state |
+| Shizuku not running after reboot | "Start Shizuku" button in the expanded panel |
 | Android 13+ "restricted settings" for sideloaded accessibility services | Setup screen explains how to allow it |
 | Service killed by battery optimisation | Setup asks for the exemption |
 
@@ -137,9 +141,9 @@ each one has an event:
 - [x] **M1 — Skeleton.** Gradle, Shizuku, AIDL, unit-test setup.
 - [x] **M2 — Backend + memory.** Playback callback, setVolume, store, re-apply on new players / mode change /
       reconnect.
-- [x] **M3 — Overlay.** Accessibility service, pill beside the stock panel, timeout, lock screen, per-orientation
-      offset setting.
-- [x] **M4 — App card.** Sliders, icons, mute, ordering, paused state, responsive sizing, animation, haptics.
+- [x] **M3 — Overlay.** Accessibility service following the stock panel window; swipeable copy of the expanded
+      stock slider row with the apps after the streams; keeps the stock panel open while touched.
+- [x] **M4 — Sliders.** Stock look, icons, mute, ordering, drag look, drag vs swipe, haptics.
 - [x] **M5 — Setup & polish.** Setup checklist, TalkBack, battery check, CI debug APK, release APK.
 
 M1–M5 are written and unit-tested where possible; everything device-side still needs the M0 run and the
@@ -149,7 +153,9 @@ manual checks in section 7.
 
 Tests are written before the implementation (see CLAUDE.md).
 
-- Unit: controller with a fake backend (only adjusted apps touched, mute = 0, re-apply on new player / mode change
-  / reconnect, ordering playing → recent → idle, uninstalled package skipped).
+- Unit: controller with a fake backend (only adjusted apps sent, mute = 0, re-send on mode change / reconnect,
+  only apps that played or were adjusted, kept 10 s after their player goes, ordering playing → recent → idle,
+  uninstalled package skipped), store, overlay content, stock row detection, stream mapping and level conversion,
+  drag vs swipe, bar height.
 - Manual on device: the full checklist is in [TESTING.md](TESTING.md) (M0 test matrix first, then memory,
-  untouched key behaviour, pill, card, TalkBack).
+  untouched key behaviour, showing/hiding, card, TalkBack).

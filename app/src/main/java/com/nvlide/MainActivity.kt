@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity as AndroidActivity
 import android.content.ComponentName
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
@@ -12,32 +13,41 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import com.nvlide.backend.ShizukuAudio
-import com.nvlide.ui.AppCardView
+import com.nvlide.ui.PanelStripView
+import com.nvlide.ui.Style
 import com.nvlide.ui.dp
 
-/** Setup checklist, pill position settings and a live app card (handy for checking players without the overlay). */
+/** Setup checklist and a live app card (handy for checking players without the overlay). */
 class MainActivity : AndroidActivity() {
     private class Step(val status: TextView, val button: Button)
 
     private val app get() = application as NvlideApp
     private val content by lazy { LinearLayout(this).apply { orientation = LinearLayout.VERTICAL } }
-    private val card by lazy { AppCardView(this, app.controller) }
+    private val card by lazy {
+        PanelStripView(this, app.controller, StreamVolumes(getSystemService(AudioManager::class.java)), app.systemUi) {
+            Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+        }.apply {
+            background = Style.surface(this@MainActivity, Style.BOX_RADIUS_DP)
+            clipToOutline = true
+        }
+    }
     private val cardTitle by lazy { text("Apps with audio open", 18f) }
     private lateinit var shizuku: Step
     private lateinit var permission: Step
     private lateinit var accessibility: Step
     private lateinit var battery: Step
-    private val onChange = { card.update(app.controller.apps()) }
+    private val onChange = { card.update(emptyList(), app.controller.apps()) }
     private val onState = { refresh() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val pad = dp(20)
         content.setPadding(pad, pad, pad, pad)
-        setContentView(ScrollView(this).apply { addView(content) })
+        // targetSdk 35 is edge-to-edge: keep the content clear of the status/title bar.
+        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(content) })
 
         content.addView(text("Setup", 22f))
         shizuku = step("Shizuku is running", "Open Shizuku") { openShizuku() }
@@ -55,12 +65,8 @@ class MainActivity : AndroidActivity() {
         })
         battery = step("Battery optimisation is off for nvlide", "Turn off") { askBatteryExemption() }
 
-        content.addView(text("Pill position", 22f).apply { setPadding(0, dp(24), 0, 0) })
-        content.addView(text("The pill shows where it lands while you move these (needs the accessibility service on).", 13f))
-        for (landscape in listOf(false, true)) offsetSliders(landscape)
-
         content.addView(cardTitle.apply { setPadding(0, dp(24), 0, dp(8)) })
-        content.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        content.addView(card, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(Style.ROW_HEIGHT_DP)))
     }
 
     override fun onResume() {
@@ -86,7 +92,7 @@ class MainActivity : AndroidActivity() {
         val ready = state == ShizukuAudio.State.READY
         cardTitle.visibility = if (ready) View.VISIBLE else View.GONE
         card.visibility = if (ready) View.VISIBLE else View.GONE
-        card.update(app.controller.apps())
+        card.update(emptyList(), app.controller.apps())
     }
 
     private fun Step.set(done: Boolean) {
@@ -107,33 +113,6 @@ class MainActivity : AndroidActivity() {
         return Step(status, button)
     }
 
-    private fun offsetSliders(landscape: Boolean) {
-        val name = if (landscape) "Landscape" else "Portrait"
-        val prefs = app.overlayPrefs
-        val label = text("", 14f)
-        fun show() = prefs.offset(landscape).let { label.text = "$name: ${it.xDp} dp from the right, ${it.yDp} dp from the centre" }
-        fun moved(offset: Offset) {
-            prefs.setOffset(landscape, offset)
-            show()
-            app.overlay?.previewPosition()
-        }
-        show()
-        content.addView(label)
-        content.addView(seek(0, 400, prefs.offset(landscape).xDp) { moved(prefs.offset(landscape).copy(xDp = it)) })
-        content.addView(seek(-500, 500, prefs.offset(landscape).yDp) { moved(prefs.offset(landscape).copy(yDp = it)) })
-    }
-
-    private fun seek(min: Int, max: Int, value: Int, onChange: (Int) -> Unit) = SeekBar(this).apply {
-        this.min = min
-        this.max = max
-        progress = value
-        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar, p: Int, fromUser: Boolean) { if (fromUser) onChange(p) }
-            override fun onStartTrackingTouch(bar: SeekBar) {}
-            override fun onStopTrackingTouch(bar: SeekBar) {}
-        })
-    }
-
     private fun text(value: String, sizeSp: Float) = TextView(this).apply {
         text = value
         textSize = sizeSp
@@ -152,7 +131,7 @@ class MainActivity : AndroidActivity() {
 
     private fun accessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-        val me = ComponentName(this, VolumeKeyService::class.java)
+        val me = ComponentName(this, StockPanelService::class.java)
         return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
     }
 

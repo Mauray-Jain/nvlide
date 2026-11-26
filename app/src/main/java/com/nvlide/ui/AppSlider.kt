@@ -1,10 +1,10 @@
 package com.nvlide.ui
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
@@ -12,10 +12,25 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
+import android.view.ViewConfiguration
 import android.widget.SeekBar
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Vertical pill slider in the stock panel style: filled level, dotted empty part, dot at zero. */
+/** null while a touch hasn't moved past [slop]; then true for a mostly vertical (level) drag, false for a sideways one. */
+fun isLevelDrag(dx: Float, dy: Float, slop: Float): Boolean? =
+    if (dx * dx + dy * dy < slop * slop) null else abs(dy) > abs(dx)
+
+/**
+ * Height of a level bar [width] wide on a [track], as the stock row draws it: a round dot at 0, growing to the
+ * full track at 1 ([fraction] of the way). The same rule with the widened bar gives the stock drag look.
+ */
+fun barHeight(fraction: Float, track: Float, width: Float) = width + fraction * (track - width)
+
+/**
+ * Track of one slider, drawn like the stock Nothing panel: a narrow level bar under a dotted column.
+ * While touched, the bar widens (and its rounded top rises by as much), then shrinks back, as the stock one does.
+ */
 @SuppressLint("ViewConstructor")
 class AppSlider(context: Context, private val onLevel: (Int) -> Unit) : View(context) {
     var level = 100
@@ -28,53 +43,75 @@ class AppSlider(context: Context, private val onLevel: (Int) -> Unit) : View(con
         }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val track = RectF()
-    private val clip = Path()
-    private val dotRadius = context.dp(1).toFloat()
-    private val dotPitch = context.dp(10).toFloat()
-    private val handleRadius = context.dp(6).toFloat()
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        track.set(0f, 0f, w.toFloat(), h.toFloat())
-        clip.reset()
-        clip.addRoundRect(track, w / 2f, w / 2f, Path.Direction.CW)
+    private val bar = RectF()
+    private val restWidth = context.dp(11.5f).toFloat()
+    private val dragWidth = context.dp(36).toFloat()
+    private var grow = 0f
+    private val growAnimator = ValueAnimator().apply {
+        duration = 150
+        addUpdateListener { grow = it.animatedValue as Float; invalidate() }
     }
+    private val dotRadius = context.dp(2).toFloat()
+    private val dotPitch = context.dp(10).toFloat()
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var downX = 0f
+    private var downY = 0f
+    private var dragging = false
 
     override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
+        val cx = width / 2f
         val h = height.toFloat()
-        canvas.save()
-        canvas.clipPath(clip)
-        paint.color = Style.TRACK
-        canvas.drawRect(track, paint)
-
-        val fillTop = h * (1 - level / 100f)
-        paint.color = if (muted) Style.RED else Style.FILL
-        canvas.drawRect(0f, fillTop, w, h, paint)
+        val barWidth = restWidth + (dragWidth - restWidth) * grow
+        val barTop = h - barHeight(level / 100f, h, barWidth)
 
         paint.color = Style.DOT
-        var y = dotPitch
-        while (y < fillTop - dotPitch / 2) {
-            canvas.drawCircle(w / 2, y, dotRadius, paint)
+        var y = dotRadius
+        while (y < barTop - dotPitch / 2) {
+            canvas.drawCircle(cx, y, dotRadius, paint)
             y += dotPitch
         }
-        canvas.restore()
 
-        if (level == 0) {
-            paint.color = if (muted) Style.RED else Style.FILL
-            canvas.drawCircle(w / 2, h - w / 2, handleRadius, paint)
-        }
+        paint.color = if (muted) Style.RED else Style.FILL
+        bar.set(cx - barWidth / 2, barTop, cx + barWidth / 2, h)
+        canvas.drawRoundRect(bar, barWidth / 2, barWidth / 2, paint)
     }
 
+    /**
+     * Like the stock slider inside a sideways-scrolling row: a vertical drag sets the level, a sideways swipe is
+     * left to the row (it takes the touch over), a tap jumps to where it lands.
+     */
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) return false // greyed out: the column takes the tap
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                parent.requestDisallowInterceptTouchEvent(true)
-                userSet(((1 - event.y / height) * 100).roundToInt())
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                dragging = false
+                animateGrow(1f)
             }
+            MotionEvent.ACTION_MOVE -> {
+                if (!dragging && isLevelDrag(event.x - downX, event.y - downY, slop) == true) {
+                    dragging = true
+                    parent.requestDisallowInterceptTouchEvent(true)
+                }
+                if (dragging) userSet(levelAt(event.y))
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!dragging) userSet(levelAt(event.y))
+                animateGrow(0f)
+            }
+            MotionEvent.ACTION_CANCEL -> animateGrow(0f)
         }
         return true
+    }
+
+    private fun levelAt(y: Float) = ((1 - y / height) * 100).roundToInt()
+
+    private fun animateGrow(to: Float) {
+        growAnimator.cancel()
+        growAnimator.setFloatValues(grow, to)
+        growAnimator.start()
     }
 
     private fun userSet(value: Int) {

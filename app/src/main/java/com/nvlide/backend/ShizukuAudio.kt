@@ -16,6 +16,7 @@ import rikka.shizuku.Shizuku
 class ShizukuAudio(
     private val onPlayers: (List<Player>) -> Unit,
     private val onLost: () -> Unit,
+    private val onConnected: () -> Unit,
 ) {
     enum class State { NOT_RUNNING, NO_PERMISSION, CONNECTING, READY }
 
@@ -31,8 +32,8 @@ class ShizukuAudio(
     ).daemon(false).processNameSuffix("audio").debuggable(BuildConfig.DEBUG).version(BuildConfig.VERSION_CODE)
 
     private val listener = object : IPlayersListener.Stub() {
-        override fun onPlayers(packages: Array<String>, piids: IntArray, playing: BooleanArray) {
-            val list = packages.indices.map { Player(packages[it], piids[it], playing[it]) }
+        override fun onPlayers(packages: Array<String>, piids: IntArray, playing: BooleanArray, lowLatency: BooleanArray) {
+            val list = packages.indices.map { Player(packages[it], piids[it], playing[it], lowLatency[it]) }
             main.post { if (service != null) onPlayers(list) }
         }
     }
@@ -43,6 +44,7 @@ class ShizukuAudio(
             try {
                 s.setListener(listener)
                 service = s
+                onConnected()
             } catch (e: RemoteException) {
                 Log.w(TAG, "setListener failed", e)
             }
@@ -70,11 +72,11 @@ class ShizukuAudio(
         if (Shizuku.pingBinder()) Shizuku.requestPermission(0)
     }
 
-    fun setVolume(piid: Int, volume: Float) {
+    fun setLevel(pkg: String, volume: Float) {
         try {
-            service?.setVolume(piid, volume)
+            service?.setLevel(pkg, volume)
         } catch (e: RemoteException) {
-            Log.w(TAG, "setVolume failed", e)
+            Log.w(TAG, "setLevel failed", e)
         }
     }
 
